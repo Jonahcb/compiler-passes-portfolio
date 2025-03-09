@@ -1,0 +1,1 @@
+command = "bril2json < {filename} | ./my_executable |  brili -p {args}"
