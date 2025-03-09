@@ -1,0 +1,9 @@
+# Ignore all Bril and JSON files
+*.bril
+*.json
+
+# Ignore compiled C++ object files
+*.o
+
+# Ignore compiled executables (form_cfg, form_blocks, etc.)
+dominance_utilities
