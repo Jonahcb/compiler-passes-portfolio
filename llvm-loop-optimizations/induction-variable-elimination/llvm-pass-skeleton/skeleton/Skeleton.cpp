@@ -110,7 +110,7 @@ namespace
                     StartVal->getType()->print(errs());
 
 
-                    // strip off any bitcast/intrin‐casts so you get to the true source
+                    // strip off any bitcast/intrin‐casts to get the true source
                     Value *Base = StartVal->stripPointerCasts();
 
 
