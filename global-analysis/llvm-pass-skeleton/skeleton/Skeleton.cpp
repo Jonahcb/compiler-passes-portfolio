@@ -7,8 +7,11 @@
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/DominanceFrontier.h"
 #include <vector>
 #include <memory>
+#include <algorithm>
 
 
 using namespace llvm;
@@ -35,7 +38,27 @@ namespace
             // Declare list of children of each block (the blocks that it is the immediate dominator of)
             std::vector<std::vector<unsigned>> Children;
 
-  
+            // Declare the dominance frontier
+            std::vector<std::vector<unsigned>> DominanceFrontier;
+
+            // Helper function to compute the dominance frontier
+            void computeDF(unsigned idx){
+                // For each child of 'idx', compute its dominance frontier
+                for (unsigned childIdx: Children[idx]){
+                    computeDF(childIdx);
+
+                    // Go through each block in the child's dominance frontier
+                    for (unsigned frontierBlockIdx: DominanceFrontier[childIdx]){
+                        // If this block is not immediately dominated by 'idx', then add to 'idx's dominance frontier
+                        if (idoms[frontierBlockIdx] != idx){
+                            DominanceFrontier[idx].push_back(frontierBlockIdx);
+                        }
+                        
+                    }
+
+                }
+                
+            }
 
             // Constructor for our Result struct
             Result(Function &F){
@@ -112,7 +135,7 @@ namespace
                 //----------------------------------------------//
                 // Form dominator tree
 
-                idoms.resize(N, entryIdx);
+                idoms.resize(N);
                 Children.resize(N);
 
 
@@ -159,6 +182,37 @@ namespace
                     Children[bestIdx].push_back(idx);
                 }
 
+                //----------------------------------------------//
+                // Determine the dominance frontier using Cytron's alg.
+
+                DominanceFrontier.assign(N, {});
+
+                
+                // Loop through each basic block
+                for (BasicBlock *BB: Blocks){
+                    unsigned blockIdx = BlockIndices[BB];
+
+                    // Compute part of its dominance frontier using its successors
+                    for (BasicBlock *succ: successors(BB)){
+                        unsigned succIdx = BlockIndices[succ];
+
+                        // If the current block does not immediately dominate this successor, then add this successor to DF
+                        if (idoms[succIdx] != blockIdx){
+                            DominanceFrontier[blockIdx].push_back(succIdx);
+                        }
+                    }
+                }
+
+                // Recursively build up each block's dominance frontier
+                computeDF(entryIdx);
+
+                // Deduplicate each block's frontier list
+                for (auto &DFb : DominanceFrontier) {
+                // Sort the indices so that duplicates become adjacent
+                std::sort(DFb.begin(), DFb.end());
+                // Erase the duplicates
+                DFb.erase(std::unique(DFb.begin(), DFb.end()), DFb.end());
+                }
 
 
 
@@ -191,6 +245,33 @@ namespace
                     first = false;
                     }
                 }
+                errs() << "\n";
+                }
+
+                errs() << "===============================\n";
+
+                errs() << "--- Immediate Dominators ---\n";
+                for (unsigned i = 0; i < N; ++i) {
+                errs() << "[" << i << "] idom = ";
+                if (i == entryIdx)
+                    errs() << "none\n";
+                else
+                    errs() << idoms[i] << "\n";
+                }
+
+                errs() << "--- Dominator Tree (Children) ---\n";
+                for (unsigned i = 0; i < N; ++i) {
+                errs() << "[" << i << "] children:";
+                for (unsigned c : Children[i])
+                    errs() << " " << c;
+                errs() << "\n";
+                }
+
+                errs() << "--- Dominance Frontier ---\n";
+                for (unsigned i = 0; i < N; ++i) {
+                errs() << "[" << i << "] DF:";
+                for (unsigned w : DominanceFrontier[i])
+                    errs() << " " << w;
                 errs() << "\n";
                 }
 
@@ -230,6 +311,87 @@ namespace
         return PreservedAnalyses::all();
   }
 };
+
+   struct LlvmDomPrinter : PassInfoMixin<LlvmDomPrinter> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
+    // --- Build block → index mapping ---
+    std::vector<BasicBlock*> Blocks;
+    DenseMap<BasicBlock*, unsigned> Idx;
+    unsigned counter = 0;
+    for (BasicBlock &BB : F) {
+      Idx[&BB] = counter;
+      Blocks.push_back(&BB);
+      ++counter;
+    }
+    unsigned N        = Blocks.size();
+    unsigned entryIdx = Idx[&F.getEntryBlock()];
+
+    // --- Get LLVM's DominatorTree and DominanceFrontier ---
+    auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
+    auto &DF = AM.getResult<DominanceFrontierAnalysis>(F);
+
+    // --- Print full DomSets ---
+    errs() << "DomSets (dominator lists):\n";
+    for (unsigned i = 0; i < N; ++i) {
+      errs() << "  [" << i << "] dominated by:";
+      for (unsigned j = 0; j < N; ++j) {
+        if (DT.dominates(Blocks[j], Blocks[i]))
+          errs() << " " << j;
+      }
+      errs() << "\n";
+    }
+
+    // --- Print immediate dominators ---
+    errs() << "--- Immediate Dominators ---\n";
+    for (unsigned i = 0; i < N; ++i) {
+      BasicBlock *BB = Blocks[i];
+      auto *Node     = DT.getNode(BB);
+      errs() << "[" << i << "] idom = ";
+      if (i == entryIdx || !Node->getIDom())
+        errs() << "none\n";
+      else {
+        unsigned p = Idx[ Node->getIDom()->getBlock() ];
+        errs() << p << "\n";
+      }
+    }
+
+    // --- Print Dominator Tree (children) ---
+    errs() << "--- Dominator Tree (Children) ---\n";
+    // Build children lists:
+    std::vector<std::vector<unsigned>> Children(N);
+    for (unsigned i = 0; i < N; ++i) {
+      BasicBlock *BB = Blocks[i];
+      auto *Node     = DT.getNode(BB);
+      if (Node->getIDom()) {
+        unsigned p = Idx[ Node->getIDom()->getBlock() ];
+        Children[p].push_back(i);
+      }
+    }
+    for (unsigned i = 0; i < N; ++i) {
+      errs() << "[" << i << "] children:";
+      for (unsigned c : Children[i])
+        errs() << " " << c;
+      errs() << "\n";
+    }
+
+  // --- Dominance Frontier ---  
+  errs() << "--- Dominance Frontier ---\n";
+  for (unsigned i = 0; i < Blocks.size(); ++i) {
+    BasicBlock *BB = Blocks[i];
+    errs() << "[" << i << "] DF:";
+    // Use find() to look up BB’s entry in the map
+    auto it = DF.find(BB);                                 // :contentReference[oaicite:0]{index=0}
+    if (it != DF.end()) {
+      for (BasicBlock *S : it->second) {
+        errs() << " " << Idx[S];
+      }
+    }
+    errs() << "\n";
+  }
+  errs() << "========================================\n\n";
+    return PreservedAnalyses::all();
+  }
+};
 }
 
 
@@ -254,6 +416,17 @@ llvmGetPassPluginInfo()
                ArrayRef<PassBuilder::PipelineElement>) {
               if (Name == "my-dom-analysis") {
                 FPM.addPass(MyDomPrinter());
+                return true;
+              }
+              return false;
+            });
+
+        // Register the printer pass for LLVM's dom analysis
+        PB.registerPipelineParsingCallback(
+            [](StringRef Name, FunctionPassManager &FPM,
+               ArrayRef<PassBuilder::PipelineElement>) {
+              if (Name == "print-llvm-dom") {
+                FPM.addPass(LlvmDomPrinter());
                 return true;
               }
               return false;
