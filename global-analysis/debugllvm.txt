@@ -1,0 +1,58 @@
+Running analysis: InnerAnalysisManagerProxy<FunctionAnalysisManager, Module> on [module]
+Running pass: (anonymous namespace)::LlvmDomPrinter on _Z3fooi (35 instructions)
+Running analysis: DominatorTreeAnalysis on _Z3fooi
+Running analysis: DominanceFrontierAnalysis on _Z3fooi
+DomSets (dominator lists):
+  [0] dominated by: 0
+  [1] dominated by: 0 1
+  [2] dominated by: 0 2
+  [3] dominated by: 0 3
+  [4] dominated by: 0 3 4
+  [5] dominated by: 0 3 4 5
+  [6] dominated by: 0 3 4 5 6
+  [7] dominated by: 0 3 4 7
+--- Immediate Dominators ---
+[0] idom = none
+[1] idom = 0
+[2] idom = 0
+[3] idom = 0
+[4] idom = 3
+[5] idom = 4
+[6] idom = 5
+[7] idom = 4
+--- Dominator Tree (Children) ---
+[0] children: 1 2 3
+[1] children:
+[2] children:
+[3] children: 4
+[4] children: 5 7
+[5] children: 6
+[6] children:
+[7] children:
+--- Dominance Frontier ---
+[0] DF:
+[1] DF: 3
+[2] DF: 3
+[3] DF:
+[4] DF: 4
+[5] DF: 4
+[6] DF: 4
+[7] DF:
+========================================
+
+Running pass: (anonymous namespace)::LlvmDomPrinter on main (3 instructions)
+Running analysis: DominatorTreeAnalysis on main
+Running analysis: DominanceFrontierAnalysis on main
+DomSets (dominator lists):
+  [0] dominated by: 0
+--- Immediate Dominators ---
+[0] idom = none
+--- Dominator Tree (Children) ---
+[0] children:
+--- Dominance Frontier ---
+[0] DF:
+========================================
+
+Running pass: VerifierPass on [module]
+Running analysis: VerifierAnalysis on [module]
+Running pass: PrintModulePass on [module]
